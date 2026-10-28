@@ -1,10 +1,31 @@
-I'll give you all 6 Kubernetes CI/CD practicals, with Python code for both pushes, automated tests, GitHub Actions, Docker, Kubernetes Deployment and Service, and the commands to run them from VS Code on Windows.
+Practical 5 — Simple Banking Application
+I'll walk you through the complete process in VS Code on Windows, from creating the Python application to running both GitHub pushes and verifying the Kubernetes deployment.
 
-The key is that you don't need six different CI/CD pipelines from scratch. You can reuse the same pipeline structure and change the application, tests, and image name for each practical.
-Part 1 — Common setup for all six practicals
-1. Folder structure
-Create a separate folder for each question in VS Code, with this structure:
-practical-1-calculator/
+Your practical requirements are:
+- Push 1: Check balance and deposit money.
+- Push 2: Add withdrawal functionality with balance validation.
+- GitHub Actions must run tests, build a Docker image, push it to Docker Hub, and deploy the matching image to Kubernetes.
+- Make exactly two source-code pushes to GitHub.
+Step 1: Check your tools
+Open VS Code, then open Terminal → New Terminal. Run these commands one at a time:
+python --version
+git --version
+docker --version
+kubectl get nodes
+
+
+You should see version information for Python, Git, and Docker, and at least one Kubernetes node in the Ready state.
+
+If your Kubernetes cluster is already running and your previous pods are working, you can use that cluster. Remember, GitHub Actions must also be able to reach it for automatic deployment.
+Step 2: Create the project folder
+In the VS Code terminal:
+mkdir practical-5-banking
+cd practical-5-banking
+code .
+
+
+Create this folder structure using the VS Code Explorer:
+practical-5-banking/
 ├── app.py
 ├── test_app.py
 ├── requirements.txt
@@ -16,251 +37,52 @@ practical-1-calculator/
         └── cicd.yml
 
 
-Use the same structure for Practicals 2–6, changing the folder name and application files as appropriate.
-2. Requirements file
-Create requirements.txt:
-pytest
+Create the .github folder, then its workflows subfolder.
+Step 3: Create the Python application for Push 1
+Open app.py and paste this code. It implements balance checking and deposits.
+from flask import Flask, request    return balance@app.route("/")def home():    return """    <h1>Simple Banking Application</h1>    <p>Use the options below.</p>    <form action="/deposit" method="post">        <input name="amount" type="number"               min="0.01" step="any"               placeholder="Deposit amount" required>        <button type="submit">Deposit</button>    </form>    <p><a href="/balance">Check Balance</a></p>    """@app.route("/balance")def check_balance():    return f"<h2>Current Balance: ₹{balance:.2f}</h2>"@app.route("/deposit", methods=["POST"])def deposit_route():    try:        amount = float(request.form["amount"])        new_balance = deposit(amount)        return f"<h2>New Balance: ₹{new_balance:.2f}</h2>"    except (ValueError, KeyError) as error:        return str(error), 400if __name__ == "__main__":    app.run(host="0.0.0.0", port=5000)
 
 
-The application logic below uses Python's standard library, so no other runtime packages are required. GitHub Actions will install pytest and run the automated tests.
-3. Dockerfile
-Create Dockerfile in each project folder:
-FROM python:3.12-slim
 
-WORKDIR /app
+Save the file using Ctrl + S.
+Step 4: Create automated tests for Push 1
+Open test_app.py and paste:
+import pytestimport app as bankingdef setup_function():    banking.balance = 1000.0def test_deposit():    assert banking.deposit(200) == 1200.0def test_invalid_deposit():    with pytest.raises(ValueError):        banking.deposit(-10)def test_balance_page():    response = banking.app.test_client().get("/balance")    assert response.status_code == 200    assert "1000.00" in response.get_data(as_text=True)def test_home_page():    assert banking.app.test_client().get("/").status_code == 200
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
 
-CMD ["python", "-u", "app.py"]
-
-
-This creates a Docker image that runs the Python application in a container. The application will run in the pod's logs, which is suitable for a basic practical demonstration.
-Part 2 — Practical 1: Menu-Driven Calculator
-Push 1: Addition and subtraction
-Create app.py. This version provides a web interface so the application can be accessed through the Kubernetes Service.
-from flask import Flask, request, jsonifyapp = Flask(__name__)def calculate(a, b, operation):    if operation == "add":        return a + b    if operation == "subtract":        return a - b    raise ValueError("Unsupported operation")@app.route("/")def home():    return """    <h1>Menu-Driven Calculator</h1>    <form action="/calculate" method="post">      <input name="a" type="number" step="any"             placeholder="First number" required>      <input name="b" type="number" step="any"             placeholder="Second number" required>      <select name="operation">        <option value="add">Addition</option>        <option value="subtract">Subtraction</option>      </select>      <button type="submit">Calculate</button>    </form>    """@app.route("/calculate", methods=["POST"])def calculate_route():    try:        result = calculate(            float(request.form["a"]),            float(request.form["b"]),            request.form["operation"]        )        return f"<h2>Result: {result}</h2><a href='/'>Back</a>"    except (ValueError, KeyError) as error:        return str(error), 400if __name__ == "__main__":    app.run(host="0.0.0.0", port=5000)
-
-
-
-Create test_app.py:
-import pytestfrom app import app, calculatedef test_addition():    assert calculate(10, 5, "add") == 15def test_subtraction():    assert calculate(10, 5, "subtract") == 5def test_invalid_operation():    with pytest.raises(ValueError):        calculate(10, 5, "multiply")def test_home_page():    assert app.test_client().get("/").status_code == 200
-
-
-
-Push 2: Add multiplication and division
-In calculate(), replace the function with this updated version:
-def calculate(a, b, operation):    if operation == "add":        return a + b    if operation == "subtract":        return a - b    if operation == "multiply":        return a * b    if operation == "divide":        if b == 0:            raise ValueError("Cannot divide by zero")        return a / b    raise ValueError("Unsupported operation")
-
-
-
-Add these options to the existing HTML <select> menu:
-<option value="multiply">Multiplication</option>
-<option value="divide">Division</option>
-
-
-Add the following tests:
-def test_multiplication():    assert calculate(4, 3, "multiply") == 12def test_division():    assert calculate(12, 3, "divide") == 4def test_division_by_zero():    with pytest.raises(ValueError):        calculate(10, 0, "divide")
-
-
-
-
-Part 3 — Practical 2: Student Grade Calculator
-Push 1: Total and average
-app.py:
-from flask import Flask, requestapp = Flask(__name__)def calculate_marks(marks):    if not marks or any(m < 0 or m > 100 for m in marks):        raise ValueError("Marks must be between 0 and 100")    total = sum(marks)    average = total / len(marks)    return total, average@app.route("/")def home():    return """    <h1>Student Grade Calculator</h1>    <p>Enter marks separated by commas, for example: 80,75,90</p>    <form action="/calculate" method="post">      <input name="marks" placeholder="80,75,90" required>      <button>Calculate</button>    </form>    """@app.route("/calculate", methods=["POST"])def calculate_route():    try:        marks = [float(x.strip())                 for x in request.form["marks"].split(",")]        total, average = calculate_marks(marks)        return f"<h2>Total: {total}</h2><h2>Average: {average:.2f}</h2>"    except ValueError as error:        return str(error), 400
-
-
-
-test_app.py:
-import pytestfrom app import app, calculate_marksdef test_total_and_average():    assert calculate_marks([80, 70, 90]) == (240, 80)def test_invalid_marks():    with pytest.raises(ValueError):        calculate_marks([120, 50])def test_home():    assert app.test_client().get("/").status_code == 200
-
-
-
-Push 2: Add grade calculation
-Update calculate_marks() to return the grade too:
-def calculate_marks(marks):    if not marks or any(m < 0 or m > 100 for m in marks):        raise ValueError("Marks must be between 0 and 100")    total = sum(marks)    average = total / len(marks)    if average >= 90:        grade = "A"    elif average >= 80:        grade = "B"    elif average >= 70:        grade = "C"    elif average >= 60:        grade = "D"    else:        grade = "F"    return total, average, grade
-
-
-
-Update the route to unpack three values:
-total, average, grade = calculate_marks(marks)return (    f"<h2>Total: {total}</h2>"    f"<h2>Average: {average:.2f}</h2>"    f"<h2>Grade: {grade}</h2>")
-
-
-
-Update the test:
-def test_grade_calculation():    assert calculate_marks([95, 85, 90]) == (270, 90, "A")
-
-
-
-The grade thresholds above are sample rules for the practical. Follow your instructor's thresholds if different ones were specified.
-
-Part 4 — Practical 3: Shopping Bill Calculator
-Push 1: Calculate total bill
-app.py:
-from flask import Flask, requestapp = Flask(__name__)def calculate_bill(price, quantity):    if price < 0 or quantity <= 0:        raise ValueError("Price must be non-negative and quantity positive")    return price * quantity@app.route("/")def home():    return """    <h1>Shopping Bill Calculator</h1>    <form action="/bill" method="post">      <input name="price" type="number" min="0" step="any"             placeholder="Item price" required>      <input name="quantity" type="number" min="1"             placeholder="Quantity" required>      <button>Calculate Bill</button>    </form>    """@app.route("/bill", methods=["POST"])def bill_route():    try:        total = calculate_bill(            float(request.form["price"]),            int(request.form["quantity"])        )        return f"<h2>Total bill: ₹{total:.2f}</h2>"    except ValueError as error:        return str(error), 400
-
-
-
-test_app.py:
-import pytestfrom app import app, calculate_billdef test_total_bill():    assert calculate_bill(50, 3) == 150def test_zero_quantity():    with pytest.raises(ValueError):        calculate_bill(50, 0)def test_home():    assert app.test_client().get("/").status_code == 200
-
-
-
-Push 2: Add discount calculation
-Replace the function with:
-def calculate_bill(price, quantity, discount=0):    if price < 0 or quantity <= 0:        raise ValueError("Invalid price or quantity")    if not 0 <= discount <= 100:        raise ValueError("Discount must be between 0 and 100")    total = price * quantity    return total, total * (1 - discount / 100)
-
-
-
-Update the route to read a discount field and display both amounts:
-total, final_total = calculate_bill(    float(request.form["price"]),    int(request.form["quantity"]),    float(request.form.get("discount", 0)))return (    f"<h2>Original bill: ₹{total:.2f}</h2>"    f"<h2>Final bill: ₹{final_total:.2f}</h2>")
-
-
-
-Add this input inside the form:
-<input name="discount" type="number" min="0" max="100"
-       step="any" value="0" placeholder="Discount percentage">
-
-
-Update test_app.py:
-def test_discount():    assert calculate_bill(100, 2, 10) == (200, 180)
-
-
-
-
-Part 5 — Practical 4: Temperature Converter
-Push 1: Celsius to Fahrenheit
-app.py:
-from flask import Flask, requestapp = Flask(__name__)def convert_temperature(value, direction):    if direction == "c_to_f":        return (value * 9 / 5) + 32    raise ValueError("Unsupported conversion")@app.route("/")def home():    return """    <h1>Temperature Converter</h1>    <form action="/convert" method="post">      <input name="temperature" type="number" step="any"             placeholder="Temperature in Celsius" required>      <button>Convert to Fahrenheit</button>    </form>    """@app.route("/convert", methods=["POST"])def convert_route():    try:        result = convert_temperature(            float(request.form["temperature"]), "c_to_f"        )        return f"<h2>Temperature: {result:.2f} °F</h2>"    except ValueError as error:        return str(error), 400if __name__ == "__main__":    app.run(host="0.0.0.0", port=5000)
-
-
-
-test_app.py:
-import pytestfrom app import app, convert_temperaturedef test_celsius_to_fahrenheit():    assert convert_temperature(0, "c_to_f") == 32def test_unsupported_conversion():    with pytest.raises(ValueError):        convert_temperature(32, "f_to_c")def test_home():    assert app.test_client().get("/").status_code == 200
-
-
-
-Push 2: Add Fahrenheit to Celsius
-Replace convert_temperature():
-def convert_temperature(value, direction):    if direction == "c_to_f":        return (value * 9 / 5) + 32    if direction == "f_to_c":        return (value - 32) * 5 / 9    raise ValueError("Unsupported conversion")
-
-
-
-Add the reverse conversion option to the form:
-<input type="radio" name="direction" value="c_to_f" checked>
-Celsius to Fahrenheit
-
-<input type="radio" name="direction" value="f_to_c">
-Fahrenheit to Celsius
-
-
-Update the route to read the selected direction:
-result = convert_temperature(    float(request.form["temperature"]),    request.form["direction"])return f"<h2>Converted temperature: {result:.2f}</h2>"
-
-
-
-Add this test:
-def test_fahrenheit_to_celsius():    assert convert_temperature(32, "f_to_c") == 0
-
-
-
-
-Part 6 — Practical 5: Simple Banking Application
-Push 1: Check balance and deposit
-app.py:
-from flask import Flask, requestapp = Flask(__name__)balance = 1000.0def deposit(amount):    global balance    if amount <= 0:        raise ValueError("Deposit must be positive")    balance += amount    return balance@app.route("/")def home():    return """    <h1>Simple Banking Application</h1>    <form action="/deposit" method="post">      <input name="amount" type="number" min="0.01"             step="any" placeholder="Deposit amount" required>      <button>Deposit</button>    </form>    <a href="/balance">Check balance</a>    """@app.route("/balance")def check_balance():    return f"<h2>Current balance: ₹{balance:.2f}</h2>"@app.route("/deposit", methods=["POST"])def deposit_route():    try:        new_balance = deposit(float(request.form["amount"]))
-
-
-
-test_app.py:
-import pytestimport app as bankingdef setup_function():    banking.balance = 1000.0def test_check_balance():    assert banking.check_balance().status_code if False else Truedef test_deposit():    assert banking.deposit(200) == 1200def test_invalid_deposit():    with pytest.raises(ValueError):        banking.deposit(-10)
-
-
-
-For the balance check, a cleaner test is:
-def test_balance_page():    assert banking.app.test_client().get("/balance").status_code == 200
-
-
-
-Push 2: Add withdrawal and validation
-Add this function to app.py:
-def withdraw(amount):    global balance    if amount <= 0:        raise ValueError("Withdrawal must be positive")    if amount > balance:        raise ValueError("Insufficient balance")    balance -= amount    return balance
-
-
-
-Add the withdrawal form inside the home page:
-<form action="/withdraw" method="post">
-  <input name="amount" type="number" min="0.01"
-         step="any" placeholder="Withdrawal amount" required>
-  <button>Withdraw</button>
-</form>
-
-
-Add the route:
-@app.route("/withdraw", methods=["POST"])def withdraw_route():    try:        new_balance = withdraw(float(request.form["amount"]))        return f"<h2>Remaining balance: ₹{new_balance:.2f}</h2>"    except ValueError as error:        return str(error), 400
-
-
-
-Add these tests:
-def test_withdrawal():    assert banking.withdraw(300) == 700def test_insufficient_balance():    with pytest.raises(ValueError):        banking.withdraw(2000)
-
-
-
-Note: This is an educational in-memory demo. The balance resets when the process restarts and is not suitable for real banking.
-
-Part 7 — Practical 6: Library Book Management
-Push 1: Add and view books
-app.py:
-from flask import Flask, requestapp = Flask(__name__)books = []def add_book(title):    title = title.strip()    if not title:        raise ValueError("Book title cannot be empty")    books.append({"title": title, "available": True})    return books@app.route("/")def home():    return """    <h1>Library Book Management</h1>    <form action="/add" method="post">      <input name="title" placeholder="Book title" required>      <button>Add Book</button>    </form>    <a href="/books">View books</a>    """@app.route("/add", methods=["POST"])def add_route():    try:        add_book(request.form["title"])        return "<h2>Book added successfully</h2><a href='/'>Back</a>"    except ValueError as error:        return str(error), 400@app.route("/books")def view_books():    if not books:        return "<h2>No books available</h2>"    return "<h1>Books</h1><ul>" + "".join(        f"<li>{book['title']} — Available</li>"        for book in books    ) + "</ul>"if __name__ == "__main__":    app.run(host="0.0.0.0", port=5000)
-
-
-
-test_app.py:
-import pytestimport app as librarydef setup_function():    library.books.clear()def test_add_book():    library.add_book("Python Basics")    assert len(library.books) == 1def test_empty_title():    with pytest.raises(ValueError):        library.add_book("")def test_view_books():    assert library.app.test_client().get("/books").status_code == 200
-
-
-
-Push 2: Add book issuing
-Add this function to app.py:
-def issue_book(title):    for book in books:        if book["title"].lower() == title.lower():            if not book["available"]:                raise ValueError("Book is already issued")            book["available"] = False            return book    raise ValueError("Book not found")
-
-
-
-Add the issue form inside the home page:
-<form action="/issue" method="post">
-  <input name="title" placeholder="Book title to issue" required>
-  <button>Issue Book</button>
-</form>
-
-
-Add the route:
-@app.route("/issue", methods=["POST"])def issue_route():    try:        book = issue_book(request.form["title"])        return f"<h2>Issued: {book['title']}</h2>"    except ValueError as error:        return str(error), 400
-
-
-
-Update the /books route so it displays the real availability:
-@app.route("/books")def view_books():    if not books:        return "<h2>No books in library</h2>"    return "<h1>Books</h1><ul>" + "".join(        f"<li>{book['title']} — "        f"{'Available' if book['available'] else 'Issued'}</li>"        for book in books    ) + "</ul>"
-
-
-
-Add these tests:
-def test_issue_book():    library.add_book("Python Basics")    assert library.issue_book("Python Basics")["available"] is Falsedef test_issue_same_book_twice():    library.add_book("Python Basics")    library.issue_book("Python Basics")    with pytest.raises(ValueError):        library.issue_book("Python Basics")
-
-
-
-Note: Like the banking demo, the library list is in memory. For a larger project, use a database to persist books and their availability.
-
-Part 8 — Common files for every practical
-Use these files in each of the six project folders. The same versions work for all six Flask applications.
-1. requirements.txt
+These tests check whether depositing money works, invalid deposits are rejected, and the application pages respond successfully.
+Step 5: Create the dependency file
+Open requirements.txt and paste:
 Flask>=3.1,<4.0
 pytest>=8.0,<10.0
 
 
-2. Dockerfile
+Step 6: Run the application locally
+In the VS Code terminal, run:
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m pytest -v
+
+
+Expected result: 4 tests pass.
+
+Now start the application:
+python app.py
+
+
+Open these URLs in your browser:
+- Home page: http://localhost:5000
+- Balance page: http://localhost:5000/balance
+You should see an opening balance of ₹1000.00. Try depositing ₹200; the balance should become ₹1200.00.
+
+Stop the local server using Ctrl + C in the terminal before proceeding.
+
+Step 7: Create the Dockerfile
+Create a file named Dockerfile with no file extension.
+
+Paste:
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -275,49 +97,56 @@ EXPOSE 5000
 CMD ["python", "-u", "app.py"]
 
 
-3. Kubernetes Deployment — deployment.yaml
-Replace YOUR_DOCKERHUB_USERNAME with your Docker Hub username. The initial image tag will be v1.
+This tells Docker how to package the application and run it inside a container.
+Step 8: Create the Kubernetes Deployment
+Create deployment.yaml:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: python-practical
+  name: python-banking
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: python-practical
+      app: python-banking
   template:
     metadata:
       labels:
-        app: python-practical
+        app: python-banking
     spec:
       containers:
-        - name: python-app
-          image: YOUR_DOCKERHUB_USERNAME/python-practical:v1
+        - name: banking-app
+          image: YOUR_DOCKERHUB_USERNAME/python-banking:bootstrap
           ports:
             - containerPort: 5000
           imagePullPolicy: Always
 
 
-4. Kubernetes Service — service.yaml
+Replace YOUR_DOCKERHUB_USERNAME with your actual Docker Hub username.
+
+The bootstrap tag is a placeholder. The GitHub Actions workflow will change the running Deployment to the unique image built by each push.
+Step 9: Create the Kubernetes Service
+Create service.yaml:
 apiVersion: v1
 kind: Service
 metadata:
-  name: python-practical-service
+  name: python-banking-service
 spec:
   type: NodePort
   selector:
-    app: python-practical
+    app: python-banking
   ports:
     - port: 80
       targetPort: 5000
       nodePort: 30080
 
 
-This exposes the Flask application on port 30080 of your Kubernetes node. With Docker Desktop Kubernetes, you can normally try http://localhost:30080. If you're using Minikube or another cluster, the access URL may differ.
-5. GitHub Actions — .github/workflows/cicd.yml
-This workflow tests the application, builds a uniquely tagged Docker image, pushes it to Docker Hub, and deploys that exact image.
-name: Python Kubernetes CI-CD
+This exposes the application through a Kubernetes Service.
+Step 10: Create the GitHub Actions workflow
+Inside .github/workflows/, create cicd.yml.
+
+This workflow automatically tests, builds, pushes, and deploys the application whenever you push to the main branch.
+name: Banking App CI-CD
 
 on:
   push:
@@ -327,11 +156,11 @@ permissions:
   contents: read
 
 jobs:
-  build-and-deploy:
+  build-test-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source code
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -340,17 +169,15 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run automated tests
         run: python -m pytest -v
 
-      - name: Set image tag
+      - name: Generate unique image tag
         run: echo "IMAGE_TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
 
-      - name: Log in to Docker Hub
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -361,9 +188,9 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/python-practical:${{ env.IMAGE_TAG }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/python-banking:${{ env.IMAGE_TAG }}
 
-      - name: Configure kubectl
+      - name: Configure Kubernetes
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         run: |
@@ -372,98 +199,147 @@ jobs:
           chmod 600 "$HOME/.kube/config"
           kubectl cluster-info
 
-      - name: Deploy the exact image built by this push
-        run: |
-          kubectl set image deployment/python-practical \
-            python-app=${{ secrets.DOCKERHUB_USERNAME }}/python-practical:${{ env.IMAGE_TAG }}
-
-          kubectl rollout status deployment/python-practical --timeout=180s
-
-
-Configure GitHub secrets
-Open your repository on GitHub and navigate to Settings → Secrets and variables → Actions → New repository secret.
-
-Create these secrets:
-Secret name	Value
-DOCKERHUB_USERNAME	Your Docker Hub username
-DOCKERHUB_TOKEN	A Docker Hub access token
-KUBE_CONFIG	Base64-encoded kubeconfig for a cluster reachable by GitHub Actions
-
-Important deployment limitation: If your Kubernetes cluster runs only on your Windows computer through Docker Desktop or Minikube, a GitHub-hosted runner usually cannot reach that cluster. The KUBE_CONFIG secret alone does not solve network access. Use a reachable Kubernetes cluster or a properly configured self-hosted runner. Keep cluster credentials private.
-
-Before using the workflow, make these two adjustments:
-
-1. In cicd.yml, add this step immediately before Deploy the exact image built by this push:
       - name: Apply Kubernetes manifests
         run: |
           kubectl apply -f deployment.yaml
           kubectl apply -f service.yaml
 
+      - name: Deploy the image from this push
+        run: |
+          kubectl set image deployment/python-banking \
+            banking-app=${{ secrets.DOCKERHUB_USERNAME }}/python-banking:${{ env.IMAGE_TAG }}
 
-2. In deployment.yaml, replace YOUR_DOCKERHUB_USERNAME with your actual Docker Hub username. The workflow will then update the deployment to the unique image tag for each push.
-Part 9 — Execute the practical using exactly two pushes
-Follow this sequence separately for whichever practical you are demonstrating.
-
-Push 1 — Initial version
-- Create the project files using the Push 1 code.
-- Install dependencies and run the tests locally.
-- Commit and push all files to GitHub.
-- Verify that GitHub Actions builds the image and deploys the application.
+          kubectl rollout status deployment/python-banking --timeout=180s
 
 
+Important: Configure GitHub secrets
+Before the workflow can run successfully, create a GitHub repository and configure these three repository secrets:
+Secret	What to enter
+DOCKERHUB_USERNAME	Your Docker Hub username
+DOCKERHUB_TOKEN	Your Docker Hub access token
+KUBE_CONFIG	Base64-encoded kubeconfig for a cluster reachable by the GitHub Actions runner
 
+Go to your repository on GitHub:
 
-Push 2 — Updated version
-- Modify the application using the Push 2 instructions.
-- Update tests to cover the new functionality and keep all previous tests passing.
-- Commit and push the changes.
-- Verify a new image tag, successful deployment rollout, and the updated application.
+Settings → Secrets and variables → Actions → New repository secret
 
+Do not paste passwords or tokens into your source code.
 
+Kubernetes connectivity warning: If your cluster is running only on your Windows computer, a GitHub-hosted runner normally cannot access it directly. You need a reachable cluster or a properly configured self-hosted runner. The kubeconfig secret alone does not establish network connectivity.
 
-Commands to run in the VS Code terminal
-For the first push:
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python -m pytest -v
-
+Step 11: Create your GitHub repository
+1. Open GitHub.
+2. Create a new repository named practical-5-banking.
+3. Keep track of its repository URL.
+4. In VS Code, ensure you are in the project folder.
+5. Check that all files are saved.
+Run these commands for Push 1 only:
 git init
 git branch -M main
 git add .
-git commit -m "Push 1: Initial application"
+git commit -m "Push 1: Balance checking and deposits"
 git remote add origin YOUR_GITHUB_REPOSITORY_URL
 git push -u origin main
 
 
-For the second push, after editing the code and tests:
+Replace YOUR_GITHUB_REPOSITORY_URL with the actual URL of your repository.
+
+If you already initialized Git and configured the remote, don't repeat those setup commands.
+What happens after Push 1?
+GitHub Actions checks out your code and installs dependencies.
+
+Automated tests verify balance checking and deposits.
+
+Docker builds and pushes the image with the first commit's unique tag.
+
+Kubernetes deploys the image produced by Push 1.
+
+
+To view the workflow, open your GitHub repository and select the Actions tab. Wait for the run to finish before proceeding.
+Step 12: Modify the application for Push 2
+Now add withdrawal functionality while keeping the existing balance checking and deposit features.
+
+Open app.py and add this function below deposit():
+def withdraw(amount):    global balance    if amount <= 0:        raise ValueError("Withdrawal must be positive")    if amount > balance:        raise ValueError("Insufficient balance")    balance -= amount    return balance
+
+
+
+Inside the HTML returned by home(), add this form before the closing triple quotes:
+<form action="/withdraw" method="post">
+    <input name="amount" type="number"
+           min="0.01" step="any"
+           placeholder="Withdrawal amount" required>
+    <button type="submit">Withdraw</button>
+</form>
+
+
+Add this route above the if __name__ == "__main__": section:
+@app.route("/withdraw", methods=["POST"])def withdraw_route():    try:        amount = float(request.form["amount"])        new_balance = withdraw(amount)        return f"<h2>Remaining Balance: ₹{new_balance:.2f}</h2>"    except (ValueError, KeyError) as error:        return str(error), 400
+
+
+
+Save app.py.
+Step 13: Add tests for Push 2
+Open test_app.py and append:
+def test_withdrawal():    assert banking.withdraw(300) == 700.0def test_insufficient_balance():    with pytest.raises(ValueError, match="Insufficient balance"):        banking.withdraw(2000)def test_zero_withdrawal():    with pytest.raises(ValueError, match="positive"):        banking.withdraw(0)
+
+
+
+Run the tests:
 python -m pytest -v
 
+
+Expected result: 7 tests pass.
+
+The tests check that:
+- Deposits still work.
+- Balance checking still works.
+- Valid withdrawals work.
+- Withdrawals exceeding the balance are rejected.
+- Zero-value withdrawals are rejected.
+Step 14: Make Push 2
+Once all tests pass, run:
 git add .
-git commit -m "Push 2: Add requested features"
+git commit -m "Push 2: Add withdrawal and balance validation"
 git push origin main
 
 
-If the repository already exists and is configured, don't repeat git init or git remote add origin.
+This is your second and final source-code push.
 
-Testing correction for Push 2: Some expected return values change when you upgrade the functions. Update the corresponding earlier tests as well; for example, the grade calculator now returns (total, average, grade), the shopping bill calculator returns (original_total, discounted_total), and the temperature converter should test both directions. For the banking example, replace the temporary test_check_balance() with the proper test_balance_page() test provided above.
-Part 10 — Verify the Kubernetes deployment
-After each successful pipeline run, execute:
+GitHub Actions should run again automatically. The new commit receives a different image tag, and Kubernetes updates to that exact image.
+Step 15: Verify the result
+After the second workflow succeeds, run these commands in a terminal connected to your Kubernetes cluster:
 kubectl get deployments
 kubectl get pods
 kubectl get services
-kubectl rollout status deployment/python-practical
-kubectl describe deployment python-practical
+kubectl rollout status deployment/python-banking
 
 
-To verify the exact deployed image:
-kubectl get deployment python-practical `
-  -o jsonpath="{.spec.template.spec.containers[0].image}"
+Check the exact image running in Kubernetes:
+kubectl get deployment python-banking -o jsonpath="{.spec.template.spec.containers[0].image}"
 
 
-To access the app locally:
-kubectl port-forward service/python-practical-service 8080:80
+The image tag should match the second successful GitHub Actions run.
+
+To access the application locally, run:
+kubectl port-forward service/python-banking-service 8080:80
 
 
-Then open http://localhost:8080 in your browser. This port-forward method is convenient for your practical demonstration and works independently of NodePort routing.
-Final checklist
+Open http://localhost:8080 in your browser.
+
+Try these operations:
+Expected demonstration results
+Initial balance₹1,000
+
+
+Deposit ₹200₹1,200
+
+
+Withdraw ₹300₹900
+
+
+Attempt to withdraw ₹2,000
+Rejected
+
+
+The balance examples assume each transaction starts from the original ₹1,000 balance. The application stores balance in memory, so this is an educational demonstration, not a real banking system. Multiple Kubernetes replicas also have separate in-memory balances.
